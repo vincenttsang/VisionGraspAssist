@@ -8,10 +8,12 @@
 import SwiftUI
 
 struct ContentView: View {
+    @State private var wristLocation: String = ""
     var body: some View {
         VStack {
-            CameraView()
+            CameraView(wristLocation: $wristLocation)
                 .ignoresSafeArea(edges: .all)
+            Text("Wrist location: \(self.wristLocation)")
         }
         .padding()
     }
