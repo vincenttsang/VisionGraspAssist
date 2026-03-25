@@ -19,6 +19,7 @@ struct CameraView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> CameraUIView {
         let view = CameraUIView()
+        context.coordinator.parentView = view
         view.setSampleBufferDelegate(context.coordinator)
         return view
     }
@@ -29,6 +30,7 @@ struct CameraView: UIViewRepresentable {
     final class Coordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         var parent: CameraView // 持有父結構的引用
         private let handPoseRequest = VNDetectHumanHandPoseRequest()
+        weak var parentView: CameraUIView?
 
         init(parent: CameraView) {
             self.parent = parent
@@ -47,11 +49,22 @@ struct CameraView: UIViewRepresentable {
                 if let observation = handPoseRequest.results?.first {
                     // 取得手腕點
                     if let wrist = try? observation.recognizedPoint(.wrist), wrist.confidence > 0.3 {
-                        
                         // 修正點：回到主線程更新 Binding
+                        let normalized = wrist.location
+                        
                         DispatchQueue.main.async {
                             // 透過 parent 存取 @Binding
                             self.parent.wristLocation = "X: \(String(format: "%.2f", wrist.location.x)), Y: \(String(format: "%.2f", wrist.location.y))"
+                            if let cameraView = self.parentView {
+                                let size = cameraView.bounds.size
+
+                                let point = CGPoint(
+                                    x: normalized.x * size.width,
+                                    y: (1 - normalized.y) * size.height
+                                )
+
+                                cameraView.drawHandPoint(point)
+                            }
                         }
                     }
                 }
@@ -64,7 +77,7 @@ struct CameraView: UIViewRepresentable {
 
 // MARK: - UIKit View
 final class CameraUIView: UIView {
-
+    private let handLayer = CAShapeLayer()
     private let session = AVCaptureSession()
     private let previewLayer = AVCaptureVideoPreviewLayer()
 
@@ -79,7 +92,7 @@ final class CameraUIView: UIView {
 
     private func setupCamera() {
         session.sessionPreset = .high
-
+        
         guard let camera = AVCaptureDevice.default(
             .builtInWideAngleCamera,
             for: .video,
@@ -103,8 +116,26 @@ final class CameraUIView: UIView {
         previewLayer.videoGravity = .resizeAspectFill
         layer.addSublayer(previewLayer)
 
+        handLayer.fillColor = UIColor.red.cgColor
+        layer.addSublayer(handLayer)
+        
         DispatchQueue.global(qos: .userInitiated).async {
             self.session.startRunning()
+        }
+    }
+    
+    func drawHandPoint(_ point: CGPoint) {
+        DispatchQueue.main.async {
+            let radius: CGFloat = 8
+            let path = UIBezierPath(
+                ovalIn: CGRect(
+                    x: point.x - radius,
+                    y: point.y - radius,
+                    width: radius * 2,
+                    height: radius * 2
+                )
+            )
+            self.handLayer.path = path.cgPath
         }
     }
     
