@@ -33,6 +33,9 @@ struct CameraView: UIViewRepresentable {
         private let handPoseRequest: VNDetectHumanHandPoseRequest
         private let objectRequest: VNCoreMLRequest
         weak var parentView: CameraUIView?
+        // 儲存最新狀態（image space, UIKit coordinates）
+        private var currentHandPoint: CGPoint?
+        private var currentObjectRect: CGRect?
 
         init(parent: CameraView) {
             self.parent = parent
@@ -63,9 +66,6 @@ struct CameraView: UIViewRepresentable {
                    let best = results.first,
                    best.confidence > 0.5 {
 
-                    let label = best.labels.first?.identifier ?? "unknown"
-                    print("📦 Object:", label)
-
                     // normalized bounding box
                     let box = best.boundingBox
 
@@ -80,7 +80,17 @@ struct CameraView: UIViewRepresentable {
                                 width: box.width * size.width,
                                 height: box.height * size.height
                             )
-
+                            
+                            
+                            let objectCenter = CGPoint(
+                                x: rect.midX,
+                                y: rect.midY
+                            )
+                            
+                            let label = best.labels.first?.identifier ?? "unknown"
+                            print("📦 Object:", label, objectCenter)
+                            
+                            self.currentObjectRect = rect
                             view.drawObjectBox(rect)
                         }
                     }
@@ -101,7 +111,8 @@ struct CameraView: UIViewRepresentable {
                                     x: normalized.x * size.width,
                                     y: (1 - normalized.y) * size.height
                                 )
-
+                                
+                                self.currentHandPoint = point
                                 cameraView.drawHandPoint(point)
                             }
                         }
@@ -109,6 +120,38 @@ struct CameraView: UIViewRepresentable {
                 }
             } catch {
                 print("Vision error: \(error)")
+            }
+            
+            // Guidance Logic
+            if let handPoint = currentHandPoint,
+               let objectRect = currentObjectRect {
+
+                let objectCenter = CGPoint(
+                    x: objectRect.midX,
+                    y: objectRect.midY
+                )
+
+                let dx = handPoint.x - objectCenter.x
+                let dy = handPoint.y - objectCenter.y
+
+                let tolerance: CGFloat = 30
+
+                let guidance: String
+
+                if dx < -tolerance {
+                    guidance = "向右移動"
+                } else if dx > tolerance {
+                    guidance = "向左移動"
+                } else if dy < -tolerance {
+                    guidance = "向下移動"
+                } else if dy > tolerance {
+                    guidance = "向上移動"
+                } else {
+                    let distance = hypot(dx, dy)
+                    guidance = distance < 60 ? "停，可以抓取" : "向前靠近"
+                }
+
+                print("🧭 Guidance:", guidance)
             }
         }
     }
