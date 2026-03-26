@@ -10,10 +10,6 @@ import AVFoundation
 import Vision
 import CoreML
 
-extension Notification.Name {
-    static let resetGuidance = Notification.Name("resetGuidance")
-}
-
 struct CameraView: UIViewRepresentable {
     @Binding var wristLocation: String
     @Binding var guidanceText: String

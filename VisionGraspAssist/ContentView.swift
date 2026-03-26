@@ -11,6 +11,19 @@ struct ContentView: View {
     @State private var wristLocation: String = ""
     @State private var guidanceText: String = "請將手移向目標物體"
     @State private var objectName: String = ""
+    @State private var speechManager = SpeechManager()
+    
+    private func reset() {
+        self.wristLocation = ""
+        self.guidanceText = "請將手移向目標物體"
+        self.objectName = ""
+        NotificationCenter.default.post(
+            name: .resetGuidance,
+            object: nil
+        )
+        speechManager.reset()
+    }
+    
     var body: some View {
         ZStack {
             CameraView(wristLocation: $wristLocation, guidanceText: $guidanceText, objectName: $objectName)
@@ -32,10 +45,7 @@ struct ContentView: View {
                 // Reset Button
                 Button(action: {
                     // 由 CameraView 內部 reset
-                    NotificationCenter.default.post(
-                        name: .resetGuidance,
-                        object: nil
-                    )
+                    self.reset()
                 }) {
                     Text("物體類型: \(self.objectName)\n手掌位置: \(self.wristLocation)")
                         .font(.title2)
@@ -43,6 +53,7 @@ struct ContentView: View {
                         .background(Color.black.opacity(0.6))
                         .foregroundColor(.white)
                         .cornerRadius(12)
+                        .accentColor(.orange)
                     Text("重新開始")
                         .font(.headline)
                         .padding()
@@ -52,6 +63,16 @@ struct ContentView: View {
                 }
                 .padding(.bottom, 40)
             }
+        }
+        .onChange(of: guidanceText) { oldValue, newValue in
+            if newValue == "✅已抓取" {
+                speechManager.speakInstantly("已經攞到物件")
+            } else {
+                speechManager.speakIfNeeded(newValue)
+            }
+        }
+        .onAppear() {
+            speechManager.speakIfNeeded(self.guidanceText)
         }
     }
 }
