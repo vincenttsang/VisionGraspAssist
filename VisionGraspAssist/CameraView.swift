@@ -10,12 +10,18 @@ import AVFoundation
 import Vision
 import CoreML
 
-struct CameraView: UIViewRepresentable {
-    @Binding var wristLocation: String // 這是我們要更新的目標
+extension Notification.Name {
+    static let resetGuidance = Notification.Name("resetGuidance")
+}
 
+struct CameraView: UIViewRepresentable {
+    @Binding var wristLocation: String
+    @Binding var guidanceText: String
+    @Binding var objectName: String
+    
     func makeCoordinator() -> Coordinator {
         // 將 self (即 CameraView) 傳進去，讓 Coordinator 能改到 Binding
-        Coordinator(parent: self)
+        return Coordinator(parent: self)
     }
 
     func makeUIView(context: Context) -> CameraUIView {
@@ -26,10 +32,11 @@ struct CameraView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: CameraUIView, context: Context) {}
+    
 
     // MARK: - Coordinator
     final class Coordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
-        var parent: CameraView // 持有父結構的引用
+        let parent: CameraView // 持有父結構的引用
         private let handPoseRequest: VNDetectHumanHandPoseRequest
         private let objectRequest: VNCoreMLRequest
         weak var parentView: CameraUIView?
@@ -61,6 +68,13 @@ struct CameraView: UIViewRepresentable {
             objectRequest.imageCropAndScaleOption = .scaleFill
             
             super.init()
+            NotificationCenter.default.addObserver(
+                forName: .resetGuidance,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.resetGuidance()
+            }
         }
         
         func captureOutput(
@@ -99,7 +113,11 @@ struct CameraView: UIViewRepresentable {
                             )
                             
                             let label = best.labels.first?.identifier ?? "unknown"
-                            print("📦 Object:", label, objectCenter)
+                            
+                            if self.guidanceState == .guiding {
+                                self.parent.objectName = label
+                                print("📦 Object:", label, objectCenter)
+                            }
                             
                             self.currentObjectRect = rect
                             view.drawObjectBox(rect)
@@ -132,16 +150,35 @@ struct CameraView: UIViewRepresentable {
             } catch {
                 print("Vision error: \(error)")
             }
-            
+            if self.guidanceState == .grasped {
+                self.parent.guidanceText = "✅已抓取"
+            }
             if let handPoint = currentHandPoint,
                let objectRect = currentObjectRect {
+
                 if let guidance = computeGuidance(
                     handPoint: handPoint,
                     objectRect: objectRect
                 ) {
+                    DispatchQueue.main.async {
+                        self.parent.guidanceText = guidance
+                    }
                     print("🧭 Guidance:", guidance)
                 }
             }
+        }
+        
+        func resetGuidance() {
+            guidanceState = .guiding
+            readyFrameCount = 0
+            currentHandPoint = nil
+            currentObjectRect = nil
+
+            DispatchQueue.main.async {
+                self.parent.guidanceText = "請將手移向目標物體"
+            }
+
+            print("🔄 Guidance reset")
         }
         
         /// Computes guidance instruction based on hand–object spatial relation.
