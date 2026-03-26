@@ -36,6 +36,17 @@ struct CameraView: UIViewRepresentable {
         // 儲存最新狀態（image space, UIKit coordinates）
         private var currentHandPoint: CGPoint?
         private var currentObjectRect: CGRect?
+        
+        // Guidance state
+        enum GuidanceState {
+            case guiding
+            case grasped
+        }
+
+        private var guidanceState: GuidanceState = .guiding
+
+        // 穩定計數
+        private var readyFrameCount: Int = 0
 
         init(parent: CameraView) {
             self.parent = parent
@@ -122,37 +133,96 @@ struct CameraView: UIViewRepresentable {
                 print("Vision error: \(error)")
             }
             
-            // Guidance Logic
             if let handPoint = currentHandPoint,
                let objectRect = currentObjectRect {
-
-                let objectCenter = CGPoint(
-                    x: objectRect.midX,
-                    y: objectRect.midY
-                )
-
-                let dx = handPoint.x - objectCenter.x
-                let dy = handPoint.y - objectCenter.y
-
-                let tolerance: CGFloat = 30
-
-                let guidance: String
-
-                if dx < -tolerance {
-                    guidance = "向右移動"
-                } else if dx > tolerance {
-                    guidance = "向左移動"
-                } else if dy < -tolerance {
-                    guidance = "向下移動"
-                } else if dy > tolerance {
-                    guidance = "向上移動"
-                } else {
-                    let distance = hypot(dx, dy)
-                    guidance = distance < 60 ? "停，可以抓取" : "向前靠近"
+                if let guidance = computeGuidance(
+                    handPoint: handPoint,
+                    objectRect: objectRect
+                ) {
+                    print("🧭 Guidance:", guidance)
                 }
-
-                print("🧭 Guidance:", guidance)
             }
+        }
+        
+        /// Computes guidance instruction based on hand–object spatial relation.
+        /// Returns nil if no instruction should be given.
+        func computeGuidance(
+            handPoint: CGPoint,
+            objectRect: CGRect
+        ) -> String? {
+
+            // -------------------------------------------------
+            // 解法 3：如果已抓取，永遠保持靜默
+            // -------------------------------------------------
+            if guidanceState == .grasped {
+                return nil
+            }
+
+            // -------------------------------------------------
+            // 解法 1：手進入物體範圍 → 視為已抓取
+            // -------------------------------------------------
+            let expandedRect = objectRect.insetBy(dx: -20, dy: -20)
+            if expandedRect.contains(handPoint) {
+                guidanceState = .grasped
+                print("✅ GuidanceState → grasped")
+                return nil
+            }
+
+            // -------------------------------------------------
+            // 基本幾何關係
+            // -------------------------------------------------
+            let objectCenter = CGPoint(
+                x: objectRect.midX,
+                y: objectRect.midY
+            )
+
+            let dx = handPoint.x - objectCenter.x
+            let dy = handPoint.y - objectCenter.y
+
+            let tolerance: CGFloat = 30
+
+            // -------------------------------------------------
+            // 水平 / 垂直優先對齊
+            // -------------------------------------------------
+            if dx < -tolerance {
+                readyFrameCount = 0
+                return "向右移動"
+            }
+
+            if dx > tolerance {
+                readyFrameCount = 0
+                return "向左移動"
+            }
+
+            if dy < -tolerance {
+                readyFrameCount = 0
+                return "向下移動"
+            }
+
+            if dy > tolerance {
+                readyFrameCount = 0
+                return "向上移動"
+            }
+
+            // -------------------------------------------------
+            // 距離判斷（解法 2：穩定條件）
+            // -------------------------------------------------
+            let distance = hypot(dx, dy)
+            let readyDistance: CGFloat = 60
+
+            if distance < readyDistance {
+                readyFrameCount += 1
+            } else {
+                readyFrameCount = 0
+                return "向前靠近"
+            }
+
+            // 需要連續 N 幀才視為 ready
+            if readyFrameCount >= 5 {
+                return "停，可以抓取"
+            }
+
+            return nil
         }
     }
 }
